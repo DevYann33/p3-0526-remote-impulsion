@@ -1061,3 +1061,143 @@ describe("US17 - Ajouter et enregistrer une série", () => {
     ]);
   });
 });
+
+describe("US19 - Modifier une série", () => {
+  afterEach(() => {
+    jest.restoreAllMocks();
+  });
+
+  test("modifie une série et renvoie la série à jour", async () => {
+    jest.spyOn(workoutSessionRepository, "readSetOwner").mockResolvedValue({
+      userId: 1,
+      status: "in_progress",
+      isCompleted: 0,
+    } as never);
+
+    const updateSetMock = jest
+      .spyOn(workoutSessionRepository, "updateSet")
+      .mockResolvedValue({
+        id: 12,
+        setNumber: 2,
+        repetitions: 12,
+        weightKg: 45,
+        durationSeconds: null,
+        isCompleted: false,
+      } as never);
+
+    const response = await authenticatedRequest
+      .put("/api/sets/12")
+      .send({ repetitions: 12, weightKg: 45 });
+
+    expect(response.status).toBe(200);
+    expect(response.body.repetitions).toBe(12);
+    expect(updateSetMock).toHaveBeenCalledWith(12, 12, 45, null, false);
+  });
+
+  test("conserve is_completed quand le champ n'est pas envoyé", async () => {
+    jest.spyOn(workoutSessionRepository, "readSetOwner").mockResolvedValue({
+      userId: 1,
+      status: "in_progress",
+      isCompleted: 1,
+    } as never);
+
+    const updateSetMock = jest
+      .spyOn(workoutSessionRepository, "updateSet")
+      .mockResolvedValue({} as never);
+
+    await authenticatedRequest.put("/api/sets/12").send({ repetitions: 12 });
+
+    expect(updateSetMock).toHaveBeenCalledWith(12, 12, null, null, true);
+  });
+
+  test("accepte une durée seule", async () => {
+    jest.spyOn(workoutSessionRepository, "readSetOwner").mockResolvedValue({
+      userId: 1,
+      status: "in_progress",
+      isCompleted: 0,
+    } as never);
+
+    const updateSetMock = jest
+      .spyOn(workoutSessionRepository, "updateSet")
+      .mockResolvedValue({} as never);
+
+    const response = await authenticatedRequest
+      .put("/api/sets/12")
+      .send({ durationSeconds: 60 });
+
+    expect(response.status).toBe(200);
+    expect(updateSetMock).toHaveBeenCalledWith(12, null, null, 60, false);
+  });
+
+  test.each(["abc", "0", "-3", "1.5"])(
+    "refuse l'identifiant invalide %s",
+    async (setId) => {
+      const updateSetMock = jest.spyOn(workoutSessionRepository, "updateSet");
+
+      const response = await authenticatedRequest
+        .put(`/api/sets/${setId}`)
+        .send({ repetitions: 10 });
+
+      expect(response.status).toBe(400);
+      expect(updateSetMock).not.toHaveBeenCalled();
+    },
+  );
+
+  test.each([
+    [{}, "aucune valeur"],
+    [{ repetitions: 0 }, "zéro répétition"],
+    [{ repetitions: 8.5 }, "répétitions décimales"],
+    [{ weightKg: -10 }, "charge négative"],
+    [{ durationSeconds: 1.5 }, "durée décimale"],
+    [{ repetitions: 10, isCompleted: "oui" }, "isCompleted non booléen"],
+  ])("refuse %s (%s)", async (body, _description) => {
+    const updateSetMock = jest.spyOn(workoutSessionRepository, "updateSet");
+
+    const response = await authenticatedRequest.put("/api/sets/12").send(body);
+
+    expect(response.status).toBe(422);
+    expect(updateSetMock).not.toHaveBeenCalled();
+  });
+
+  test("ne révèle pas la série d'un autre utilisateur", async () => {
+    jest.spyOn(workoutSessionRepository, "readSetOwner").mockResolvedValue({
+      userId: 2,
+      status: "in_progress",
+      isCompleted: 0,
+    } as never);
+
+    const updateSetMock = jest.spyOn(workoutSessionRepository, "updateSet");
+
+    const response = await authenticatedRequest
+      .put("/api/sets/12")
+      .send({ repetitions: 10 });
+
+    expect(response.status).toBe(404);
+    expect(updateSetMock).not.toHaveBeenCalled();
+  });
+
+  test("refuse la modification si la séance n'est pas en cours", async () => {
+    jest.spyOn(workoutSessionRepository, "readSetOwner").mockResolvedValue({
+      userId: 1,
+      status: "completed",
+      isCompleted: 1,
+    } as never);
+
+    const response = await authenticatedRequest
+      .put("/api/sets/12")
+      .send({ repetitions: 10 });
+
+    expect(response.status).toBe(409);
+  });
+
+  test("refuse l'accès sans cookie d'authentification", async () => {
+    const updateSetMock = jest.spyOn(workoutSessionRepository, "updateSet");
+
+    const response = await request(app)
+      .put("/api/sets/12")
+      .send({ repetitions: 10 });
+
+    expect(response.status).toBe(401);
+    expect(updateSetMock).not.toHaveBeenCalled();
+  });
+});
