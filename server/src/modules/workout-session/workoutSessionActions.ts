@@ -552,6 +552,47 @@ const destroy: RequestHandler = async (req, res, next) => {
   }
 };
 
+const findSetValuesError = (
+  repetitions: unknown,
+  weightKg: unknown,
+  durationSeconds: unknown,
+) => {
+  if (
+    repetitions != null &&
+    (typeof repetitions !== "number" ||
+      !Number.isInteger(repetitions) ||
+      repetitions <= 0)
+  ) {
+    return { repetitions: "Valeur invalide" };
+  }
+
+  if (
+    weightKg != null &&
+    (typeof weightKg !== "number" ||
+      !Number.isFinite(weightKg) ||
+      weightKg <= 0)
+  ) {
+    return { weightKg: "Valeur invalide" };
+  }
+
+  if (
+    durationSeconds != null &&
+    (typeof durationSeconds !== "number" ||
+      !Number.isInteger(durationSeconds) ||
+      durationSeconds <= 0)
+  ) {
+    return { durationSeconds: "Valeur invalide" };
+  }
+
+  if (repetitions == null && weightKg == null && durationSeconds == null) {
+    return {
+      global: "Renseignez au moins une répétition, une charge ou une durée",
+    };
+  }
+
+  return null;
+};
+
 const createSet: RequestHandler = async (req, res, next) => {
   try {
     const sessionExerciseId = Number(req.params.id);
@@ -563,38 +604,14 @@ const createSet: RequestHandler = async (req, res, next) => {
       return;
     }
 
-    if (
-      repetitions != null &&
-      (!Number.isInteger(repetitions) || repetitions <= 0)
-    ) {
-      res.status(422).json({ errors: { repetitions: "Valeur invalide" } });
-      return;
-    }
+    const valuesError = findSetValuesError(
+      repetitions,
+      weightKg,
+      durationSeconds,
+    );
 
-    if (
-      weightKg != null &&
-      (typeof weightKg !== "number" ||
-        !Number.isFinite(weightKg) ||
-        weightKg <= 0)
-    ) {
-      res.status(422).json({ errors: { weightKg: "Valeur invalide" } });
-      return;
-    }
-
-    if (
-      durationSeconds != null &&
-      (!Number.isInteger(durationSeconds) || durationSeconds <= 0)
-    ) {
-      res.status(422).json({ errors: { durationSeconds: "Valeur invalide" } });
-      return;
-    }
-
-    if (repetitions == null && weightKg == null && durationSeconds == null) {
-      res.status(422).json({
-        errors: {
-          global: "Renseignez au moins une répétition, une charge ou une durée",
-        },
-      });
+    if (valuesError !== null) {
+      res.status(422).json({ errors: valuesError });
       return;
     }
 
@@ -656,6 +673,60 @@ const browseSets: RequestHandler = async (req, res, next) => {
   }
 };
 
+const updateSet: RequestHandler = async (req, res, next) => {
+  try {
+    const setId = Number(req.params.id);
+    const { repetitions, weightKg, durationSeconds, isCompleted } =
+      req.body ?? {};
+    const userId = getCurrentUserId(req);
+
+    if (!Number.isInteger(setId) || setId <= 0) {
+      res.status(400).json({ error: "Identifiant invalide" });
+      return;
+    }
+
+    const valuesError = findSetValuesError(
+      repetitions,
+      weightKg,
+      durationSeconds,
+    );
+
+    if (valuesError !== null) {
+      res.status(422).json({ errors: valuesError });
+      return;
+    }
+
+    if (isCompleted != null && typeof isCompleted !== "boolean") {
+      res.status(422).json({ errors: { isCompleted: "Valeur invalide" } });
+      return;
+    }
+
+    const owner = await workoutSessionRepository.readSetOwner(setId);
+
+    if (owner === undefined || owner.userId !== userId) {
+      res.sendStatus(404);
+      return;
+    }
+
+    if (owner.status !== "in_progress") {
+      res.sendStatus(409);
+      return;
+    }
+
+    const updatedSet = await workoutSessionRepository.updateSet(
+      setId,
+      repetitions ?? null,
+      weightKg ?? null,
+      durationSeconds ?? null,
+      isCompleted ?? Boolean(owner.isCompleted),
+    );
+
+    res.json(updatedSet);
+  } catch (err) {
+    next(err);
+  }
+};
+
 export default {
   add,
   addExercises,
@@ -674,4 +745,5 @@ export default {
   destroy,
   createSet,
   browseSets,
+  updateSet,
 };

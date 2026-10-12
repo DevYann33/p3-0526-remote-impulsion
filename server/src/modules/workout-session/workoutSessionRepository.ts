@@ -677,6 +677,57 @@ class WorkoutSessionRepository {
 
     return rows;
   }
+
+  async readSetOwner(setId: number) {
+    const [rows] = await databaseClient.query<Rows>(
+      `SELECT
+        workout_session.user_id AS userId,
+        workout_session.status,
+        exercise_set.is_completed AS isCompleted
+       FROM exercise_set
+       JOIN workout_session_exercise
+         ON workout_session_exercise.id = exercise_set.workout_session_exercise_id
+       JOIN workout_session
+         ON workout_session.id = workout_session_exercise.workout_session_id
+       WHERE exercise_set.id = ?`,
+      [setId],
+    );
+
+    return rows[0];
+  }
+
+  async updateSet(
+    setId: number,
+    repetitions: number | null,
+    weightKg: number | null,
+    durationSeconds: number | null,
+    isCompleted: boolean,
+  ) {
+    await databaseClient.query<Result>(
+      `UPDATE exercise_set
+       SET repetitions = ?,
+           weight_kg = ?,
+           duration_seconds = ?,
+           is_completed = ?
+       WHERE id = ?`,
+      [repetitions, weightKg, durationSeconds, isCompleted, setId],
+    );
+
+    const [rows] = await databaseClient.query<Rows>(
+      `SELECT
+        id,
+        set_number AS setNumber,
+        repetitions,
+        weight_kg AS weightKg,
+        duration_seconds AS durationSeconds,
+        is_completed AS isCompleted
+       FROM exercise_set
+       WHERE id = ?`,
+      [setId],
+    );
+
+    return rows[0];
+  }
 }
 
 export default new WorkoutSessionRepository();
